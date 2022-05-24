@@ -1,5 +1,11 @@
 
-exports.handler = function(context, event, callback) {
+exports.handler = async function(context, event, callback) {
+  const syncServiceSid = context.TWILIO_SYNC_SERVICE_SID || 'default';
+  const syncListName = context.SYNC_LIST_NAME || 'optout-list';
+  // You can quickly access a Twilio Sync client via Runtime.getSync()
+  const syncClient = Runtime.getSync({ serviceName: syncServiceSid });
+
+  
     const twilioClient = context.getTwilioClient();
     
     const response = new Twilio.Response();
@@ -8,6 +14,7 @@ exports.handler = function(context, event, callback) {
   
     sentSuccess = 0;
     sentErrors = 0;
+    optout = 0;
   
     try {
       
@@ -24,24 +31,50 @@ exports.handler = function(context, event, callback) {
   
         let myPromises = [];
   
+        try {
+          // Ensure that the Sync List exists before we try to add a new message to it
+          await getOrCreateResource(syncClient.lists, syncListName);
+          // Append the incoming message to the list
+          var optOutNumbers = [];
+          
+             await syncClient.lists(syncListName).syncListItems.list().then(
+               syncListItems => syncListItems.forEach(s => optOutNumbers.push(s.data.num))
+              );
+      
+      
+          console.log("fetching optout list done");
+       
+        } catch (error) {
+          console.error(error);
+        }
+
         results.forEach((msg) => {
   
-          let body = msgTemplate;
-          Object.keys(msg).forEach((k) => {
-            //remplacement des variables [xxx] par la valeur de xxx associée
-            body = body.replace("[" + k + "]", msg[k]);
-          });
-  
-          myPromises.push(
-            twilioClient.messages.create({
-             // messagingServiceSid: process.env.TWILIO_MESSAGING_SID,
-              from: senderId,
-              to: msg.Number,
-              body: body,
-            })
-          );
-  
-          console.log("SENDING --- TO : " + msg.Number + " -- BODY : " + body);
+
+          if(optOutNumbers.includes(msg.Number)){
+            optout++;
+            console.log("optout++ for " + msg.Number)
+          }
+          else{
+            let body = msgTemplate;
+            Object.keys(msg).forEach((k) => {
+              //remplacement des variables [xxx] par la valeur de xxx associée
+              body = body.replace("[" + k + "]", msg[k]);
+            });
+    
+            myPromises.push(
+              twilioClient.messages.create({
+               // messagingServiceSid: process.env.TWILIO_MESSAGING_SID,
+                from: senderId,
+                to: msg.Number,
+                body: body + " STOP: " + context.DOMAIN_NAME + "/o?" + base10_to_base64(msg.Number.substring(1)),
+              })
+            );
+    
+            console.log("SENDING --- TO : " + msg.Number + " -- BODY : " + body);
+          }
+
+
         });
   
         Promise.allSettled(myPromises).then((result) => {
@@ -56,6 +89,7 @@ exports.handler = function(context, event, callback) {
             data: {
               sentSuccess: sentSuccess,
               sentErrors: sentErrors,
+              optout: optout
             },
           })
           callback(null, response);
@@ -71,4 +105,31 @@ exports.handler = function(context, event, callback) {
     }
     
    
+  };
+
+  //number encoding
+function base10_to_base64(num) {
+  var order = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-";
+  var base = order.length;
+  var str = "", r;
+  while (num) {
+      r = num % base
+      num -= r;
+      num /= base;
+      str = order.charAt(r) + str;
+  }
+  return str;
+}
+
+  // Helper method to simplify getting a Sync resource (Document, List, or Map)
+  // that handles the case where it may not exist yet.
+  const getOrCreateResource = async (resource, name, options = {}) => {
+    try {
+      // Does this resource (Sync Document, List, or Map) exist already? Return it
+      return await resource(name).fetch();
+    } catch (err) {
+      // It doesn't exist, create a new one with the given name and return it
+      options.uniqueName = name;
+      return resource.create(options);
+    }
   };
