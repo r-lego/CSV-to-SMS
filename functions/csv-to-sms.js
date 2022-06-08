@@ -31,51 +31,63 @@ exports.handler = async function(context, event, callback) {
   
         let myPromises = [];
   
-        try {
-          // Ensure that the Sync List exists before we try to add a new message to it
-          await getOrCreateResource(syncClient.lists, syncListName);
-          // Append the incoming message to the list
-          var optOutNumbers = [];
+        // SYNC LIST OPTOUT IMPLEM
+       /* try {
           
-             await syncClient.lists(syncListName).syncListItems.list().then(
-               syncListItems => syncListItems.forEach(s => optOutNumbers.push(s.data.num))
-              );
-      
-      
-          console.log("fetching optout list done");
+          await getOrCreateResource(syncClient.lists, syncListName);
+       
+          var optOutNumbers = [];
+        
+          await syncClient.lists(syncListName).syncListItems.list().then(
+            syncListItems => syncListItems.forEach(s => optOutNumbers.push(s.data.num))
+          );
        
         } catch (error) {
           console.error(error);
-        }
+        }*/
 
-        results.forEach((msg) => {
+          // SYNC MAPS OPTOUT IMPLEM
+          try {
+    
+            await getOrCreateResource(syncClient.maps, syncListName);
+          
+            var optOutNumbers = [];
+          
+            await syncClient.maps(syncListName).syncMapItems.list().then(
+              syncMapItems => syncMapItems.forEach(s => optOutNumbers.push(s.key))
+            );
+          
+          } catch (error) {
+            console.error(error);
+          }
+          results.forEach((msg) => {
   
 
-          if(optOutNumbers.includes(msg.Number)){
-            optout++;
-            console.log("optout++ for " + msg.Number)
-          }
-          else{
-            let body = msgTemplate;
-            Object.keys(msg).forEach((k) => {
-              //remplacement des variables [xxx] par la valeur de xxx associée
-              body = body.replace("[" + k + "]", msg[k]);
-            });
-    
-            myPromises.push(
-              twilioClient.messages.create({
-               // messagingServiceSid: process.env.TWILIO_MESSAGING_SID,
-                from: senderId,
-                to: msg.Number,
-                body: body + " STOP: " + context.DOMAIN_NAME + "/o?" + base10_to_base64(msg.Number.substring(1)),
-              })
-            );
-    
-            console.log("SENDING --- TO : " + msg.Number + " -- BODY : " + body);
-          }
-
-
-        });
+            if(optOutNumbers.includes(msg.Number)){
+              optout++;
+              console.log("optout++ for " + msg.Number)
+            }
+            else{
+              let body = msgTemplate;
+              Object.keys(msg).forEach((k) => {
+                //remplacement des variables [xxx] par la valeur de xxx associée
+                body = body.replace("[" + k + "]", msg[k]);
+              });
+      
+              myPromises.push(
+                twilioClient.messages.create({
+                 // messagingServiceSid: process.env.TWILIO_MESSAGING_SID,
+                  from: senderId,
+                  to: msg.Number,
+                  body: body + " STOP: " + context.DOMAIN_NAME + "/o?" + base10_to_base64(msg.Number.substring(1)),
+                })
+              );
+      
+              console.log("SENDING --- TO : " + msg.Number + " -- BODY : " + body);
+            }
+  
+  
+          });
   
         Promise.allSettled(myPromises).then((result) => {
           result.forEach((r) => {
